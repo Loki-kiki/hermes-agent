@@ -2389,11 +2389,12 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
         # ownership check the /api/status aggregation applies — before projecting them for
         # dashboards; legacy rows without writer identity predate the stamps and stay projected.
         identity = _build_pid_record()
-        platforms = {
+        owned = {
             key: value for key, value in platforms.items()
             if not isinstance(value, dict) or value.get("writer_pid") is None
             or (value.get("writer_pid") == identity["pid"]
                 and value.get("writer_start_time") == identity["start_time"])}
+        platforms = dict(owned)
         api_status = self._api_server_status_payload(heartbeat_at=time.time())
         api_platform = dict(platforms.get("api_server", {}))
         api_platform.setdefault("state", "connected" if self.is_connected else "disconnected")
@@ -2403,8 +2404,15 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
         # drainable use the same shared contract as /api/status so the two never disagree.
         active_api_runs, process_depth, active_delegations = self._readiness_work_counts()
         from gateway.run import _resolve_gateway_model
+        # Readiness is the SECOND projection of the same file: it derives its platform counts by
+        # iterating the map it is handed. Handing it the raw runtime dict would keep counting the
+        # row just dropped above, so the body's `platforms` map and its `readiness` counts would
+        # describe different files (#142482, one field over). `owned` (not `platforms`) so the
+        # counts keep describing persisted rows and the injected api_server overlay is not
+        # double-counted.
         readiness = collect_runtime_readiness(
-            configured_model=_resolve_gateway_model(), runtime_status=runtime,
+            configured_model=_resolve_gateway_model(),
+            runtime_status={**runtime, "platforms": owned},
             active_api_runs=active_api_runs, process_completion_queue_depth=process_depth,
             active_delegations=active_delegations)
         return web.json_response({

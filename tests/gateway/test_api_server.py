@@ -899,6 +899,13 @@ class TestHealthDetailedEndpoint:
                 assert data["platforms"]["legacy"]["state"] == "connected"
                 assert "weixin" not in data["platforms"]
                 assert "api_server" in data["platforms"]
+                # The readiness block is a SECOND projection of the same file: it counts
+                # connected rows from the map it is handed. If the dead writer's row is
+                # dropped from `platforms` but still handed to the readiness collector, the
+                # response describes two different files (telegram + legacy + weixin = 3 here).
+                gateway_check = data["readiness"]["checks"]["gateway"]
+                assert gateway_check["platforms"] == 2
+                assert gateway_check["connected_platforms"] == 2
 
     @pytest.mark.asyncio
     async def test_public_health_does_not_run_readiness_probes(self, adapter):
